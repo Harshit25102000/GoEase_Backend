@@ -107,11 +107,11 @@ def student_login():
 
 
 if __name__=="__main__":
-    app.run(debug=True)
+    app.run(debug=False)
     app.run(host="0.0.0.0", port=5000)
 
-    app.run(host="223.236.147.175", port=5000)
 
-    app.config['DEBUG'] = True
+
+    app.config['DEBUG'] = False
     app.secret_key = "harshit25102000"
     app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
