@@ -1,0 +1,13 @@
+flask
+pymongo
+python-dotenv
+redis
+Flask-Session
+bcrypt
+flask-cors
+flask-bcrypt
+boto3
+mailjet_rest
+pytz
+cachelib
+cachetools
