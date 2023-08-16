@@ -15,7 +15,13 @@ import threading
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from OpenSSL import SSL
+# Create a client context
+context = SSL.Context(SSL.SSLv23_METHOD)
 
+# Load private key and certificate
+context.use_privatekey_file('key.pem')
+context.use_certificate_file('cert.pem')
 
 # Configuration
 file_path = 'credentials.txt'
@@ -232,13 +238,14 @@ def teacher_logout():
         return return_success(status="LOGOUT")
     except Exception as e:
         return return_error(message=str(e))
-
+context = ('cert.pem', 'key.pem')
 if __name__=="__main__":
-    app.run(debug=False)
-    app.run(host="0.0.0.0", port=5000)
+    app.run(ssl_context=context,debug=True)
 
 
 
-    app.config['DEBUG'] = False
+
+
+    app.config['DEBUG'] = True
     app.secret_key = "harshit25102000"
     app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
