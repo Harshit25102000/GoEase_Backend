@@ -1,6 +1,6 @@
 from flask_cors import CORS, cross_origin
 import json
-from common_functions import return_success,return_error,check_student_email,read_credentials_from_file,extract_year_from_email,logged_in,check_prn,generate_otp
+from common_functions import return_success,return_error,check_student_email,read_credentials_from_file,extract_year_from_email,logged_in,check_prn,generate_otp,generate_unique_id
 from flask import Flask, render_template_string, request, session, redirect, url_for
 from mongo_connection import *
 from flask_session import Session
@@ -8,7 +8,8 @@ import bcrypt
 from flask_bcrypt import Bcrypt
 app = Flask(__name__)
 app.secret_key = "harshit25102000"
-CORS(app)
+CORS(app,supports_credentials=True)
+import random
 import datetime
 import pytz
 import threading
@@ -16,12 +17,12 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from OpenSSL import SSL
-# Create a client context
-context = SSL.Context(SSL.SSLv23_METHOD)
-
-# Load private key and certificate
-context.use_privatekey_file('key.pem')
-context.use_certificate_file('cert.pem')
+# # Create a client context
+# context = SSL.Context(SSL.SSLv23_METHOD)
+#
+# # Load private key and certificate
+# context.use_privatekey_file('key.pem')
+# context.use_certificate_file('cert.pem')
 
 # Configuration
 file_path = 'credentials.txt'
@@ -118,7 +119,7 @@ def student_login():
 @app.route("/teacher/send_signup_otp",methods=["POST"])
 def teacher_send_signup_otp():
     try:
-
+        print(request)
         data = request.get_json()
         email = data["email"]
         if not email.endswith("sitpune.edu.in"):
@@ -213,7 +214,7 @@ def teacher_login():
         if not email.endswith("sitpune.edu.in"):
 
             return return_error(error="WRONG_EMAIL_FORMAT", message="Email not associated with college")
-        login_user=student_credentials.find_one({'email':email})
+        login_user=teacher_credentials.find_one({'email':email})
 
         if login_user is None:
 
@@ -225,8 +226,10 @@ def teacher_login():
         if not result:
             return return_error(error="WRONG_PASSWORD", message="Wrong password for this email")
 
+
+
         session["email"]=email
-        return return_success({"email":email})
+        return return_success({"email":session["email"]})
     except Exception as e:
         return return_error(message=str(e))
 
@@ -238,14 +241,167 @@ def teacher_logout():
         return return_success(status="LOGOUT")
     except Exception as e:
         return return_error(message=str(e))
+
+@app.route("/teacher/@me",methods=["GET"])
+@logged_in
+def at_me():
+    user_id = session.get("email")
+    if not user_id:
+        return return_error(error="UNAUTHORIZED",code=401)
+    else:
+        return return_success(data={"email": user_id})
+
+@app.route("/teacher/add_class",methods=["POST"])
+@logged_in
+def add_class():
+    try:
+        data = request.get_json()
+        name = data["name"]
+        description=data.get("description","")
+        low_attendance=data["low_attendance"]
+        warning=data["warning"]
+        students=data["students"]
+        schedule=data["schedule"]
+        print(data)
+        data["teacher"]=session["email"]
+
+        if class_db.find_one({"teacher":session["email"],"name":name}):
+            return return_error(error="CLASS_ALREADY_EXIST", message="Class already exists , use edit option instead")
+        class_db.insert_one(data)
+        return return_success()
+    except Exception as e:
+        return return_error(message=str(e))
+
+@app.route("/teacher/get_classes",methods=["GET"])
+@logged_in
+def get_classes():
+
+
+        print(session["email"])
+        x=class_db.find({"teacher":session["email"]},{ "_id": 0, "name": 1,"description":1 })
+
+
+        ls=[]
+        for i in x:
+            ls.append(i)
+            print(i)
+        if len(ls) == 0:
+            return return_error(error="NO_CLASSES_FOUND", message="No classes exist for this teacher")
+
+        print(ls)
+        return return_success(ls)
+@app.route("/teacher/get_upcoming_classes",methods=["GET"])
+@logged_in
+def get_upcoming_classes():
+    current_day = datetime.datetime.now().strftime("%A").lower()  # Get the current day (e.g., "friday")
+    current_time = datetime.datetime.now().strftime("%H:%M")  # Get the current time in HH:MM format
+    print(current_time)
+    print(current_day)
+
+    x=class_db.find({"teacher":session["email"]},{ "_id": 0 })
+    ls=[]
+    for i in x:
+        isday=i["schedule"]
+        if isday.get(current_day) is not None:
+        # if current_day in i["schedule"]:
+
+            timing=isday[current_day]["time"]
+            cur_time = datetime.datetime.strptime(current_time, "%H:%M")
+            stored_time=datetime.datetime.strptime(timing["start"], "%H:%M")
+            if stored_time>cur_time:
+                ls.append(i)
+    print(ls)
+
+    if len(ls) == 0:
+        return return_error(error="NO_CLASSES_FOUND", message="No classes exist for this teacher")
+
+
+    return return_success(ls)
+@app.route("/teacher/get_timetable",methods=["GET"])
+@logged_in
+def get_timetable():
+    print(session)
+    try:
+        print(session["email"])
+        x=class_db.find({"teacher":session["email"]},{ "_id": 0, "name": 1 ,"schedule":1})
+
+
+        ls=[]
+        for i in x:
+            ls.append(i)
+            print(i)
+        if len(ls) == 0:
+            return return_error(error="NO_CLASSES_FOUND", message="No classes exist for this teacher")
+
+        print(ls)
+        return return_success(ls)
+    except Exception as e:
+        return return_error(message=str(e))
+
+@app.route("/teacher/generate_qr",methods=["POST"])
+@logged_in
+def generate_qr():
+
+    try:
+        data = request.get_json()
+        class_name = data["class_name"]
+        auth_type=data["auth_type"]
+        additional=data.get("additional","")
+        today = datetime.datetime.today()
+        today=today.strftime("%d/%m/%Y")
+        query = {'teacher':session['email'],'class':class_name,'date':today,'auth_type':auth_type,'additional':additional}
+        if unique_db.find_one(query) is None:
+            print("first time")
+            query["unique_id"] = generate_unique_id()
+            unique_db.insert_one(query)
+            del query["_id"]
+            return return_success(query)
+        else:
+            print("not first time")
+            query["unique_id"] = generate_unique_id()
+            new_data = {"$set": query}
+            unique_db.update_one({'teacher':session['email'],'class':class_name,'date':today}, new_data)
+            print(query)
+            return return_success(query)
+    except Exception as e:
+        return return_error(message=str(e))
+
+
+@app.route("/teacher/stop_qr",methods=["POST"])
+@logged_in
+def stop_qr():
+
+    try:
+        data = request.get_json()
+        class_name = data["class_name"]
+        auth_type=data["auth_type"]
+        additional=data.get("additional","")
+        today = datetime.datetime.today()
+        today=today.strftime("%d/%m/%Y")
+        query = {'teacher':session['email'],'class':class_name,'date':today,'auth_type':auth_type,'additional':additional}
+        if unique_db.find_one(query) is None:
+            return return_error(error="NO_QR_FOUND", message="No QR data found to stop")
+        else:
+            unique_db.delete_one(query)
+            return return_success()
+    except Exception as e:
+        return return_error(message=str(e))
+
+
+
 context = ('cert.pem', 'key.pem')
 if __name__=="__main__":
-    app.run(ssl_context=context,debug=True)
-
-
-
-
 
     app.config['DEBUG'] = True
     app.secret_key = "harshit25102000"
     app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
+    app.config["SESSION_PERMANENT"] = True
+    app.config["SESSION_TYPE"] = "mongodb"
+    app.config["SESSION_MONGODB"] = client
+    app.config["SESSION_MONGODB_DB"] = 'userData'
+    app.config["SESSION_MONGODB_COLLECTION"] = 'sessions'
+    Session(app)
+    app.run(debug=True)
+
+
+

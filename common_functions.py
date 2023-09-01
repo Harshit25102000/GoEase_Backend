@@ -3,8 +3,8 @@ from flask import jsonify
 from flask import session
 from functools import wraps
 import random
-from mongo_connection import otp_db
-
+from mongo_connection import otp_db , unique_db
+import string
 def return_error(error="SOMETHING_WENT_WRONG", message="Error", data={}, code=200):
     return jsonify({"success": False, "error": error, "message": message, "data": data})
 
@@ -86,3 +86,14 @@ def generate_otp():
 
         if not existing_otp:
             return otp
+
+def generate_unique_id(length=10, chars=string.ascii_letters + string.digits):
+
+    unique_string = ''.join(random.choice(chars) for _ in range(length))
+    while True:
+
+        if not unique_db.find_one({"unique_string_field": unique_string}):
+            return unique_string
+        else:
+
+            unique_string = ''.join(random.choice(chars) for _ in range(length))

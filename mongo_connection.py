@@ -19,5 +19,7 @@ except Exception as e:
 db = client['GoEase']
 student_credentials = db['student_credentials']
 teacher_credentials = db['teacher_credentials']
+class_db = db['classes']
 otp_db=db['OTPs']
+unique_db=db['unique_id']
 verified_emails = db['verified_emails']
