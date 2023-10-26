@@ -1,10 +1,14 @@
 from flask_cors import CORS, cross_origin
 import json
 from common_functions import return_success,return_error,check_student_email,read_credentials_from_file,extract_year_from_email,logged_in,check_prn,generate_otp,generate_unique_id
-from flask import Flask, render_template_string, request, session, redirect, url_for
+from flask import Flask, render_template_string, request, session, redirect, url_for,send_file, Response
 from mongo_connection import *
 from flask_session import Session
 import bcrypt
+import csv
+import io
+
+import pandas as pd
 from flask_bcrypt import Bcrypt
 app = Flask(__name__)
 app.secret_key = "harshit25102000"
@@ -12,6 +16,7 @@ CORS(app,supports_credentials=True)
 import random
 import datetime
 import pytz
+from io import BytesIO
 import threading
 import smtplib
 from email.mime.text import MIMEText
@@ -112,7 +117,38 @@ def student_login():
     except Exception as e:
         return return_error(message=str(e))
 
+@app.route("/student/mark_attendance",methods=["POST"])
+def mark_attendance():
+    try:
+        data = request.get_json()
 
+        class_name = data["class_name"]
+        date = data["date"]
+        teacher=data["teacher"]
+        unique_id=data["unique_id"]
+        device_id=data["deviceID"]
+        student=data["email"]
+        query = {'unique_id':unique_id}
+        if student_credentials.find_one({'email':student}) is None:
+            return return_error(error="STUDENT DOES NOT EXIST", message="Student's email does not exist")
+        if unique_db.find_one(query) is None:
+            return return_error(error="WRONG_UNIQUE_ID", message="Unique Id of QR is expired")
+        del data["unique_id"]
+        x = student_credentials.find_one({'email': student})
+        if attendance_db.find_one({"class_name":class_name,"date":date,"teacher":teacher,"student":x["name"]}) is not None:
+            return return_error(error="ATTENDANCE_ALREADY_MARKED", message="Attendance already marked")
+        if attendance_db.find_one({"class_name":class_name,"date":date,"teacher":teacher}) is not None:
+            return return_error(error="ATTENDANCE_ALREADY_MARKED_WITH_THIS_DEVICE", message="Attendance already marked with this device")
+        else:
+
+            del data["email"]
+            data["student"]=x["name"]
+            data["prn"]=x["prn"]
+            data["batch"]=x["batch"]
+            attendance_db.insert_one(data)
+            return return_success()
+    except Exception as e:
+        return return_error(message=str(e))
 
 """--------------------------------------------------------------Teachers Code Below--------------------------------------------------------------"""
 
@@ -367,6 +403,26 @@ def generate_qr():
         return return_error(message=str(e))
 
 
+@app.route("/teacher/get_attendance_dates",methods=["POST"])
+@logged_in
+def get_attendance_dates():
+
+    try:
+        data = request.get_json()
+        class_name = data["className"]
+        x= attendance_db.find({"class_name": class_name})
+        res=[]
+        if x is not None:
+            for i in x:
+                print(i)
+                res.append(i["date"])
+            return return_success(res)
+        else:
+            return return_error(error="NO_ATTENDANCE_FOUND", message="No attendance exist for this class")
+
+    except Exception as e:
+        return return_error(message=str(e))
+
 @app.route("/teacher/stop_qr",methods=["POST"])
 @logged_in
 def stop_qr():
@@ -384,6 +440,88 @@ def stop_qr():
         else:
             unique_db.delete_one(query)
             return return_success()
+    except Exception as e:
+        return return_error(message=str(e))
+
+@app.route("/teacher/download_attendance",methods=["POST"])
+@logged_in
+def download_attendance():
+
+        print("running")
+        data = request.get_json()
+        class_name = data["className"]
+        date=data["date"]
+        print(class_name,date)
+        filter = {
+            "class_name": class_name,
+            "date": date,
+            "teacher": session["email"]
+        }
+
+
+        projection = {
+            "prn": 1,
+            "batch": 1,
+            "student": 1,
+            "_id": 0
+        }
+
+        # Query the collection with the filter and projection
+        results = attendance_db.find(filter, projection)
+
+        # exceldata = [
+        #     {"name": "Item 1", "value": 100},
+        #     {"name": "Item 2", "value": 200},
+        #     # Add more data as needed
+        # ]
+        csv_output = io.StringIO()
+        csv_writer = csv.writer(csv_output)
+
+
+        # Write the CSV header
+        csv_writer.writerow(["prn", "batch", "student"])
+        for result in results:
+            csv_writer.writerow([result["prn"], result["batch"], result["student"]])
+
+        # # Write the data rows to the CSV file
+        # for row in exceldata:
+        #     csv_writer.writerow([row[field] for field in fieldnames])
+
+        # Prepare the CSV response
+        response = Response(csv_output.getvalue(), content_type='text/csv')
+        response.headers['Content-Disposition'] = f'attachment; filename={date}.csv'
+        print(response)
+        return response
+
+
+@app.route("/teacher/get_attendance_names",methods=["POST"])
+@logged_in
+def get_attendance_names():
+
+    try:
+        data = request.get_json()
+        class_name = data["class_name"]
+
+        date = datetime.datetime.today()
+        date = date.strftime("%d/%m/%Y")
+
+        teacher = session["email"]
+
+        x = attendance_db.find({"class_name": class_name,'date': date,'teacher': teacher})
+        res = []
+        if x is not None:
+            print("true")
+            for i in x:
+                temp={}
+                temp["name"]=i["student"]
+                temp["prn"]=i["prn"]
+                print(temp)
+                res.append(temp)
+            print(res)
+            return return_success(res)
+        else:
+            return return_error(error="NO_NAME_FOUND", message="No attendance exist for this class")
+
     except Exception as e:
         return return_error(message=str(e))
 
